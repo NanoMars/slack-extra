@@ -44,7 +44,7 @@ async def edit_move_handler(ack: AsyncAck, body: dict, client: AsyncWebClient):
         .title("Setup Mover")
         .add_block(
             Section(
-                text="Users who join any of the channels you select will be added to all other selected channels automatically. Joining a one-way channel won't add users to the others. You must be a workspace admin or channel manager of all selected channels to set this up."
+                text="Users who join any of the two-way channels will be added to all of the two-way channels, as well as all of the one-way channels.\n\nUsers who join any of the one-way channels will not automatically be added to the two-way channels."
             )
         )
         .add_block(
@@ -55,7 +55,7 @@ async def edit_move_handler(ack: AsyncAck, body: dict, client: AsyncWebClient):
         )
         .add_block(
             Input()
-            .label("Channels")
+            .label("Two-way channels")
             .element(
                 MultiChannelsSelect()
                 .action_id("channels")
