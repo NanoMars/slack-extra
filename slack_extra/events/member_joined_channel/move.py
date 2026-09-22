@@ -7,6 +7,18 @@ from slack_extra.tables import MigrationChannel
 from slack_extra.utils.logging import send_heartbeat
 
 
+async def invite_to_channel(client: AsyncWebClient, channel: str, user_id: str):
+    try:
+        await client.conversations_invite(
+            channel=channel, users=[user_id], token=config.slack.user_token
+        )
+    except SlackApiError as e:
+        # the user token can't invite to private channels its user isn't in, but the bot can
+        if e.response["error"] not in ["channel_not_found", "not_in_channel"]:
+            raise
+        await client.conversations_invite(channel=channel, users=[user_id])
+
+
 async def mover_handler(body: dict, event: dict, client: AsyncWebClient):
     channel_id = event["channel"]
     user_id = event["user"]
@@ -28,9 +40,7 @@ async def mover_handler(body: dict, event: dict, client: AsyncWebClient):
         for chan in channels:
             if chan != channel_id:
                 try:
-                    await client.conversations_invite(
-                        channel=chan, users=[user_id], token=config.slack.user_token
-                    )
+                    await invite_to_channel(client, chan, user_id)
                 except SlackApiError as e:
                     if e.response["error"] == "already_in_channel":
                         pass
