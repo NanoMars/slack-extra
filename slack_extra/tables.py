@@ -74,6 +74,7 @@ class MigrationChannel(Table):
     id = Serial(primary_key=True)
     channel_id = Varchar(unique=True)
     config = ForeignKey(references=MigrationConfig)
+    one_way = Boolean(default=False)
 
 
 class UserSettings(Table):

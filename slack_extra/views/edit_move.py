@@ -31,7 +31,12 @@ async def edit_move_handler(ack: AsyncAck, body: dict, client: AsyncWebClient):
     channels = await MigrationChannel.objects().where(
         MigrationChannel.config == config_val
     )
-    channels_list = [c.channel_id for c in channels]
+    channels_list = [c.channel_id for c in channels if not c.one_way]
+    one_way_channels_list = [c.channel_id for c in channels if c.one_way]
+
+    one_way_select = MultiChannelsSelect().action_id("one_way_channels")
+    for c in one_way_channels_list:
+        one_way_select.add_initial_channel(c)
 
     view = (
         Modal()
@@ -39,7 +44,7 @@ async def edit_move_handler(ack: AsyncAck, body: dict, client: AsyncWebClient):
         .title("Setup Mover")
         .add_block(
             Section(
-                text="Users who join any of the channels you select will be added to all other selected channels automatically. You must be a workspace admin or channel manager of all selected channels to set this up."
+                text="Users who join any of the channels you select will be added to all other selected channels automatically. Joining a one-way channel won't add users to the others. You must be a workspace admin or channel manager of all selected channels to set this up."
             )
         )
         .add_block(
@@ -57,6 +62,13 @@ async def edit_move_handler(ack: AsyncAck, body: dict, client: AsyncWebClient):
                 .initial_channels(*channels_list)
             )
             .block_id("channels")
+        )
+        .add_block(
+            Input()
+            .label("One-way channels")
+            .element(one_way_select)
+            .block_id("one_way_channels")
+            .optional()
         )
         .private_metadata(f"edit:{config_val}")
         .submit("Update!")

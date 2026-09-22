@@ -19,6 +19,8 @@ async def mover_handler(body: dict, event: dict, client: AsyncWebClient):
     )
     if migration_channel:
         migration_channel = migration_channel[0]
+        if migration_channel.one_way:
+            return
         channels = await MigrationChannel.objects().where(
             MigrationChannel.config == migration_channel.config
         )
