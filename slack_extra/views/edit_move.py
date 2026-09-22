@@ -1,6 +1,7 @@
+from blockkit import ConversationFilter
 from blockkit import Input
 from blockkit import Modal
-from blockkit import MultiChannelsSelect
+from blockkit import MultiConversationsSelect
 from blockkit import PlainTextInput
 from blockkit import Section
 from slack_bolt.async_app import AsyncAck
@@ -34,9 +35,14 @@ async def edit_move_handler(ack: AsyncAck, body: dict, client: AsyncWebClient):
     channels_list = [c.channel_id for c in channels if not c.one_way]
     one_way_channels_list = [c.channel_id for c in channels if c.one_way]
 
-    one_way_select = MultiChannelsSelect().action_id("one_way_channels")
+    one_way_select = (
+        MultiConversationsSelect()
+        .action_id("one_way_channels")
+        .filter(ConversationFilter().include(["public", "private"]))
+        .placeholder("Select channels")
+    )
     for c in one_way_channels_list:
-        one_way_select.add_initial_channel(c)
+        one_way_select.add_initial_conversation(c)
 
     view = (
         Modal()
@@ -57,9 +63,11 @@ async def edit_move_handler(ack: AsyncAck, body: dict, client: AsyncWebClient):
             Input()
             .label("Two-way channels")
             .element(
-                MultiChannelsSelect()
+                MultiConversationsSelect()
                 .action_id("channels")
-                .initial_channels(*channels_list)
+                .filter(ConversationFilter().include(["public", "private"]))
+                .placeholder("Select channels")
+                .initial_conversations(*channels_list)
             )
             .block_id("channels")
         )

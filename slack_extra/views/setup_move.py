@@ -1,6 +1,7 @@
 from blockkit import Modal
 from blockkit import Section
 from slack_bolt.async_app import AsyncAck
+from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 
 from slack_extra.tables import MigrationChannel
@@ -14,9 +15,9 @@ async def setup_move_handler(ack: AsyncAck, body: dict, client: AsyncWebClient):
     view = body["view"]
     values = view["state"]["values"]
     name = values["name"]["name"]["value"]
-    channels = values["channels"]["channels"]["selected_channels"]
+    channels = values["channels"]["channels"]["selected_conversations"]
     one_way_channels = values["one_way_channels"]["one_way_channels"].get(
-        "selected_channels", []
+        "selected_conversations", []
     )
     private_metadata = view["private_metadata"]
     editing = True if "edit" in private_metadata else False
@@ -35,6 +36,22 @@ async def setup_move_handler(ack: AsyncAck, body: dict, client: AsyncWebClient):
     blocks = {"channels": channels, "one_way_channels": one_way_channels}
 
     errors = {}
+    channel_infos = {}
+    for block_id, block_channels in blocks.items():
+        for c in block_channels:
+            # the bot can only see private channels it's been added to
+            try:
+                channel_info = await client.conversations_info(channel=c)
+            except SlackApiError:
+                errors[block_id] = (
+                    "Make sure the bot is in all of the selected channels."
+                )
+                break
+            channel_infos[c] = channel_info["channel"]
+
+    if errors:
+        return await ack(response_action="errors", errors=errors)
+
     for block_id, block_channels in blocks.items():
         allowed = [await is_channel_manager(user_id, c) for c in block_channels]
         if not all(allowed):
@@ -53,8 +70,7 @@ async def setup_move_handler(ack: AsyncAck, body: dict, client: AsyncWebClient):
                 .first()
             )
             if db_channel and db_channel.config != config_val:
-                channel_info = await client.conversations_info(channel=c)
-                channel_name = channel_info["channel"]["name"]
+                channel_name = channel_infos[c]["name"]
                 if len(channel_name) > 10:
                     channel_name = f"{channel_name[:5]}...{channel_name[-5:]}"
                 errors[block_id] = (
@@ -66,6 +82,8 @@ async def setup_move_handler(ack: AsyncAck, body: dict, client: AsyncWebClient):
         return await ack(response_action="errors", errors=errors)
 
     for c in all_channels:
+        if channel_infos[c].get("is_member"):
+            continue
         try:
             await client.conversations_join(channel=c)
         except Exception as e:

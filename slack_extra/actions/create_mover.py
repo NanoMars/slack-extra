@@ -1,6 +1,7 @@
+from blockkit import ConversationFilter
 from blockkit import Input
 from blockkit import Modal
-from blockkit import MultiChannelsSelect
+from blockkit import MultiConversationsSelect
 from blockkit import PlainTextInput
 from blockkit import Section
 from slack_bolt.async_app import AsyncAck
@@ -31,13 +32,23 @@ async def create_mover_handler(
         .add_block(
             Input()
             .label("Two-way channels")
-            .element(MultiChannelsSelect().action_id("channels"))
+            .element(
+                MultiConversationsSelect()
+                .action_id("channels")
+                .filter(ConversationFilter().include(["public", "private"]))
+                .placeholder("Select channels")
+            )
             .block_id("channels")
         )
         .add_block(
             Input()
             .label("One-way channels")
-            .element(MultiChannelsSelect().action_id("one_way_channels"))
+            .element(
+                MultiConversationsSelect()
+                .action_id("one_way_channels")
+                .filter(ConversationFilter().include(["public", "private"]))
+                .placeholder("Select channels")
+            )
             .block_id("one_way_channels")
             .optional()
         )
