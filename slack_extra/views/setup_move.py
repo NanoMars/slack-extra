@@ -15,49 +15,66 @@ async def setup_move_handler(ack: AsyncAck, body: dict, client: AsyncWebClient):
     values = view["state"]["values"]
     name = values["name"]["name"]["value"]
     channels = values["channels"]["channels"]["selected_channels"]
+    one_way_channels = values["one_way_channels"]["one_way_channels"].get(
+        "selected_channels", []
+    )
     private_metadata = view["private_metadata"]
     editing = True if "edit" in private_metadata else False
     await send_heartbeat(f"{private_metadata.split(':')[-1]}")
     config_val = int(private_metadata.split(":")[-1]) if editing else None
 
-    allowed = [await is_channel_manager(user_id, c) for c in channels]
-
-    if not all(allowed):
+    if any(c in channels for c in one_way_channels):
         return await ack(
             response_action="errors",
             errors={
-                "channels": "You must be a channel manager of all selected channels to set up migrations."
+                "one_way_channels": "Channels can only be either two-way or one-way, not both."
             },
         )
 
-    exist = []
-    for c in channels:
-        db_channel = (
-            await MigrationChannel.objects()
-            .where(MigrationChannel.channel_id == c)
-            .first()
-        )
-        if db_channel and db_channel.config != config_val:
-            exist.append(c)
+    all_channels = channels + one_way_channels
+    blocks = {"channels": channels, "one_way_channels": one_way_channels}
 
-    if exist:
-        existing_channels = ", ".join([f"<#{c}>" for c in exist])
-        return await ack(
-            response_action="errors",
-            errors={
-                "channels": f"These channels are already configured for migration: {existing_channels}"
-            },
-        )
+    errors = {}
+    for block_id, block_channels in blocks.items():
+        allowed = [await is_channel_manager(user_id, c) for c in block_channels]
+        if not all(allowed):
+            errors[block_id] = (
+                "You must be a channel manager of all selected channels to set up movers."
+            )
 
-    for c in channels:
+    if errors:
+        return await ack(response_action="errors", errors=errors)
+
+    for block_id, block_channels in blocks.items():
+        for c in block_channels:
+            db_channel = (
+                await MigrationChannel.objects()
+                .where(MigrationChannel.channel_id == c)
+                .first()
+            )
+            if db_channel and db_channel.config != config_val:
+                channel_info = await client.conversations_info(channel=c)
+                channel_name = channel_info["channel"]["name"]
+                if len(channel_name) > 10:
+                    channel_name = f"{channel_name[:5]}...{channel_name[-5:]}"
+                errors[block_id] = (
+                    f"#{channel_name} is already configured for auto moving."
+                )
+                break
+
+    if errors:
+        return await ack(response_action="errors", errors=errors)
+
+    for c in all_channels:
         try:
             await client.conversations_join(channel=c)
         except Exception as e:
             await send_heartbeat(f"Error joining channel {c} for user {user_id}: {e}")
+            block_id = "one_way_channels" if c in one_way_channels else "channels"
             return await ack(
                 response_action="errors",
                 errors={
-                    "channels": f"An unexpected error occurred while joining <#{c}>. Please ensure the bot is invited to the channel and try again."
+                    block_id: "Make sure the bot is in all of the selected channels."
                 },
             )
 
@@ -74,24 +91,38 @@ async def setup_move_handler(ack: AsyncAck, body: dict, client: AsyncWebClient):
                 ).where(MigrationChannel.config == config_id)
                 existing_channel_ids = {c["channel_id"] for c in existing_channels}
 
-                channels_to_delete = existing_channel_ids - set(channels)
+                channels_to_delete = existing_channel_ids - set(all_channels)
                 if channels_to_delete:
                     await MigrationChannel.delete().where(
                         MigrationChannel.config == config_id,
                         MigrationChannel.channel_id.is_in(list(channels_to_delete)),
                     )
 
-                channels_to_add = set(channels) - existing_channel_ids
+                await MigrationChannel.update({MigrationChannel.one_way: False}).where(
+                    MigrationChannel.config == config_id,
+                    MigrationChannel.channel_id.is_in(channels),
+                )
+                if one_way_channels:
+                    await MigrationChannel.update(
+                        {MigrationChannel.one_way: True}
+                    ).where(
+                        MigrationChannel.config == config_id,
+                        MigrationChannel.channel_id.is_in(one_way_channels),
+                    )
+
+                channels_to_add = set(all_channels) - existing_channel_ids
             else:
                 conf = await MigrationConfig.insert(
                     MigrationConfig(name=name, user_id=user_id)
                 ).returning(MigrationConfig.id)
                 config_id = conf[0]["id"]
-                channels_to_add = channels
+                channels_to_add = all_channels
 
             if channels_to_add:
                 migration_channels = [
-                    MigrationChannel(channel_id=c, config=config_id)
+                    MigrationChannel(
+                        channel_id=c, config=config_id, one_way=c in one_way_channels
+                    )
                     for c in channels_to_add
                 ]
                 await MigrationChannel.insert(*migration_channels)
@@ -100,16 +131,16 @@ async def setup_move_handler(ack: AsyncAck, body: dict, client: AsyncWebClient):
         return await ack(
             response_action="errors",
             errors={
-                "name": "An unexpected error occurred while setting up the migration. Please try again later."
+                "name": "An unexpected error occurred while setting up the mover. Please try again later."
             },
         )
 
     action = "Updated" if editing else "Setup"
     view = (
         Modal()
-        .title(f"Migration {action}!")
+        .title(f"Mover {action}!")
         .add_block(
-            Section(text=f"Your migration has been {action.lower()} successfully :D")
+            Section(text=f"Your mover has been {action.lower()} successfully :D")
         )
         .close("Yippee!")
     ).build()
