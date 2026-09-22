@@ -58,7 +58,7 @@ async def setup_move_handler(ack: AsyncAck, body: dict, client: AsyncWebClient):
                 if len(channel_name) > 10:
                     channel_name = f"{channel_name[:5]}...{channel_name[-5:]}"
                 errors[block_id] = (
-                    f"{channel_name} is already configured for auto moving."
+                    f"#{channel_name} is already configured for auto moving."
                 )
                 break
 
